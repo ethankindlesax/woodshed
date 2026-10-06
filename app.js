@@ -22,6 +22,8 @@ function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('Could not save on this device'); }
 }
+// tell sync.js a record changed (no-op if sync isn't loaded)
+function pend(t, id) { if (window.Sync) Sync.pend(t, id); }
 let S = load();
 
 // ---------- dates (device local time) ----------
@@ -54,23 +56,27 @@ const active = () => S.habits.filter(h => !h.retired).sort((a, b) => a.order - b
 const habit = id => S.habits.find(h => h.id === id);
 function minutesOn(habitId, key) {
   let m = 0;
-  for (const s of S.sessions) if (s.habit === habitId && s.date === key) m += s.minutes;
+  for (const s of S.sessions) if (!s.deleted && s.habit === habitId && s.date === key) m += s.minutes;
   return m;
 }
 function target(h, key) { return h.targets[wd(fromKey(key))]; }
 function isDone(h, key) {
   const mk = key + '|' + h.id;
-  if (mk in S.marks) return S.marks[mk];
+  const v = S.marks[mk];
+  if (v === true || v === false) return v;
   const t = target(h, key);
   return !!t && minutesOn(h.id, key) >= t;
 }
 function addSession(habitId, key, minutes, at) {
   const s = { id: uid(), habit: habitId, date: key, minutes: Math.round(minutes), at: at || new Date().toISOString() };
   S.sessions.push(s);
-  save();
+  save(); pend('sessions', s.id);
   return s;
 }
-function removeSession(id) { S.sessions = S.sessions.filter(s => s.id !== id); save(); }
+function removeSession(id) {
+  const s = S.sessions.find(x => x.id === id);
+  if (s) { s.deleted = true; save(); pend('sessions', id); }
+}
 
 // ---------- timer ----------
 function startTimer(habitId) {
@@ -124,6 +130,7 @@ function renderHeader() {
   const mon = monday(now);
   let today = 0, week = 0;
   for (const s of S.sessions) {
+    if (s.deleted) continue;
     if (s.date === key) today += s.minutes;
     const d = fromKey(s.date);
     if (d >= mon && d < addDays(mon, 7)) week += s.minutes;
@@ -213,7 +220,7 @@ function renderDay() {
   const key = openDay, d = fromKey(key);
   document.getElementById('dayTitle').textContent = fmtDate(d);
   const blocks = active().map(h => {
-    const ss = S.sessions.filter(s => s.habit === h.id && s.date === key);
+    const ss = S.sessions.filter(s => !s.deleted && s.habit === h.id && s.date === key);
     const m = ss.reduce((a, s) => a + s.minutes, 0), t = target(h, key);
     const rows = ss.map(s => {
       const at = new Date(s.at);
@@ -226,7 +233,7 @@ function renderDay() {
 }
 
 // ---------- settings sheet ----------
-function showSettings() { renderSettings(); document.getElementById('settingsDialog').showModal(); }
+function showSettings() { renderSettings(); if (window.Sync) Sync.renderSync(); document.getElementById('settingsDialog').showModal(); }
 function renderSettings() {
   const hs = [...S.habits].sort((a, b) => (a.retired - b.retired) || (a.order - b.order));
   document.getElementById('habitEditor').innerHTML = hs.map(h =>
@@ -258,25 +265,26 @@ document.addEventListener('click', e => {
   else if (act === 'mark') {
     const h = habit(id), key = b.dataset.day, mk = key + '|' + id;
     const want = !isDone(h, key);
-    delete S.marks[mk];
+    S.marks[mk] = null;
     if (isDone(h, key) !== want) S.marks[mk] = want;
-    save(); render();
+    save(); pend('marks', mk); render();
   }
   else if (act === 'day') showDay(b.dataset.day);
   else if (act === 'del') {
     const s = S.sessions.find(x => x.id === b.dataset.sid);
     removeSession(b.dataset.sid);
-    toast('Session deleted', () => { S.sessions.push(s); save(); renderDay(); render(); });
+    toast('Session deleted', () => { s.deleted = false; save(); pend('sessions', s.id); renderDay(); render(); });
     renderDay(); render();
   }
   else if (act === 'settings') showSettings();
   else if (act === 'move' || act === 'retire' || act === 'copyMon') {
     const hid = b.closest('.hed').dataset.id, h = habit(hid);
+    pend('habits', h.id);
     if (act === 'retire') { h.retired = !h.retired; if (!h.retired) h.order = Math.max(0, ...S.habits.map(x => x.order)) + 1; }
     if (act === 'copyMon') h.targets = h.targets.map(() => h.targets[0]);
     if (act === 'move') {
       const list = active(), i = list.indexOf(h), j = i + +b.dataset.dir;
-      if (j >= 0 && j < list.length) { const o = list[j].order; list[j].order = h.order; h.order = o; }
+      if (j >= 0 && j < list.length) { const o = list[j].order; list[j].order = h.order; h.order = o; pend('habits', list[j].id); }
       if (list[j] && list[j].order === h.order) h.order += +b.dataset.dir;
     }
     save(); renderSettings(); render();
@@ -290,16 +298,17 @@ document.getElementById('habitEditor').addEventListener('change', e => {
     const v = parseInt(inp.value, 10);
     h.targets[+inp.dataset.i] = v > 0 ? Math.min(v, 720) : null;
   }
-  save(); render();
+  save(); pend('habits', h.id); render();
 });
 
 document.getElementById('newHabitForm').addEventListener('submit', e => {
   e.preventDefault();
   const inp = document.getElementById('newHabitName'), name = inp.value.trim();
   if (!name) return;
-  S.habits.push(blankHabit(name, Math.max(0, ...S.habits.map(h => h.order)) + 1));
+  const nh = blankHabit(name, Math.max(0, ...S.habits.map(h => h.order)) + 1);
+  S.habits.push(nh);
   inp.value = '';
-  save(); renderSettings(); render();
+  save(); pend('habits', nh.id); renderSettings(); render();
 });
 
 document.getElementById('addForm').addEventListener('submit', e => {
@@ -335,7 +344,7 @@ document.getElementById('exportJson').onclick = () =>
   download('woodshed-backup-' + dayKey(new Date()) + '.json', JSON.stringify(S, null, 2), 'application/json');
 document.getElementById('exportCsv').onclick = () => {
   const rows = [['date', 'habit', 'minutes', 'logged_at']].concat(
-    [...S.sessions].sort((a, b) => a.date.localeCompare(b.date))
+    S.sessions.filter(s => !s.deleted).sort((a, b) => a.date.localeCompare(b.date))
       .map(s => [s.date, (habit(s.habit) || { name: s.habit }).name, s.minutes, s.at]));
   download('woodshed-sessions-' + dayKey(new Date()) + '.csv',
     rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n'), 'text/csv');
@@ -347,7 +356,7 @@ document.getElementById('importJson').addEventListener('change', async e => {
     const data = JSON.parse(await f.text());
     if (data.v !== 1 || !Array.isArray(data.habits) || !Array.isArray(data.sessions)) throw new Error('bad file');
     if (!confirm('Replace everything on this device with this backup?')) return;
-    S = data; save(); renderSettings(); render();
+    S = data; save(); if (window.Sync) { Sync.pendAll(); Sync.schedule(300); } renderSettings(); render();
     toast('Backup imported');
   } catch (err) { toast('That file isn’t a Woodshed backup'); }
   e.target.value = '';

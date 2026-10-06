@@ -34,7 +34,7 @@ h1 { font-size: 32px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.
 .sub { font-size: 13px; color: var(--mute); margin-top: 6px; letter-spacing: 0.04em; }
 .sub b { color: var(--soft); font-weight: 400; }
 
-.ghost.icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--soft); }
+.ghost.icon { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--soft); }
 .ghost.icon:active { background: var(--wash); }
 
 /* Today */
@@ -142,3 +142,13 @@ input:focus, select:focus { outline: 2px solid var(--pale); outline-offset: 1px;
 .tg label { font-size: 10px; color: var(--mute); text-align: center; letter-spacing: 0.08em; }
 .tg input { height: 36px; padding: 0; text-align: center; font-size: 13px; width: 100%; border-radius: 8px; }
 .copy { font-size: 12px; color: var(--blue); margin-top: 6px; }
+
+/* Sync */
+.syncdot { position: absolute; top: 8px; right: 7px; width: 6px; height: 6px; border-radius: 50%; }
+.syncdot.off { display: none; }
+.syncdot.ok { background: var(--pale); }
+.syncdot.busy { background: var(--blue); }
+.syncdot.err { background: #c98a6b; }
+.authform { display: flex; flex-direction: column; gap: 8px; }
+.syncerr { font-size: 13px; color: #a4623f; margin-bottom: 10px; }
+.hint b { font-weight: 400; color: var(--soft); }

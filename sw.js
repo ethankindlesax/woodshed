@@ -1,6 +1,6 @@
 // Offline support: serve the app from cache, refresh the cache in the background.
-const CACHE = 'woodshed-v3-1';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png'];
+const CACHE = 'woodshed-v3-2';
+const FILES = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'sync.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
 });
@@ -10,6 +10,7 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  if (e.request.url.includes('.supabase.co')) return; // sync traffic always goes to the network
   e.respondWith(caches.open(CACHE).then(async c => {
     const hit = await c.match(e.request);
     const net = fetch(e.request).then(r => { if (r.ok || r.type === 'opaque') c.put(e.request, r.clone()); return r; }).catch(() => hit);

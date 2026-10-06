@@ -25,6 +25,7 @@
     </div>
     <button class="ghost icon" id="openSettings" aria-label="Habits and settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <span id="syncDot" class="syncdot off"></span>
     </button>
   </header>
 
@@ -66,8 +67,10 @@
     <input id="newHabitName" placeholder="New habit" aria-label="New habit name" required>
     <button class="solid" type="submit">Add habit</button>
   </form>
+  <h4>Sync</h4>
+  <div id="syncBox"></div>
   <h4>Your data</h4>
-  <p class="hint">Everything is saved on this device. Export a backup now and then.</p>
+  <p class="hint">Everything is saved on this device first. Export a backup now and then.</p>
   <div class="fields wrap">
     <button class="line" id="exportJson">Export backup (.json)</button>
     <button class="line" id="exportCsv">Export sessions (.csv)</button>
@@ -75,6 +78,8 @@
   </div>
 </dialog>
 
+<script src="config.js"></script>
 <script src="app.js"></script>
+<script src="sync.js"></script>
 </body>
 </html>
