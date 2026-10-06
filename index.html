@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f7f8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Woodshed">
+<title>Woodshed</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <div>
+      <h1 id="dayName">Today</h1>
+      <p class="sub" id="todaySub"></p>
+    </div>
+    <button class="ghost icon" id="openSettings" aria-label="Habits and settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </header>
+
+  <section id="today" class="today" aria-label="Today's habits"></section>
+
+  <section class="week" aria-label="Week">
+    <div class="weekhead">
+      <button class="ghost icon" id="prevWeek" aria-label="Previous week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h2 id="weekLabel">This week</h2>
+      <button class="ghost icon" id="nextWeek" aria-label="Next week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+    <div id="grid" class="grid"></div>
+    <p class="legend"><span class="lg fill"></span>toward target <span class="lg ok"></span>done <span class="lg rest"></span>rest day</p>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden>
+  <span id="toastText"></span><button id="toastUndo" class="link">Undo</button>
+</div>
+
+<dialog id="dayDialog" class="sheet">
+  <form method="dialog" class="sheethead"><h3 id="dayTitle"></h3><button class="ghost icon" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
+  <div id="dayList"></div>
+  <form id="addForm" class="addform">
+    <h4>Add a session</h4>
+    <div class="fields">
+      <select id="addHabit" aria-label="Habit"></select>
+      <input id="addMin" type="number" inputmode="numeric" min="1" max="720" placeholder="Minutes" aria-label="Minutes" required>
+      <button class="solid" type="submit">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog" class="sheet">
+  <form method="dialog" class="sheethead"><h3>Habits</h3><button class="ghost icon" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
+  <p class="hint">Daily targets in minutes. Leave a day empty for a rest day.</p>
+  <div id="habitEditor"></div>
+  <form id="newHabitForm" class="fields">
+    <input id="newHabitName" placeholder="New habit" aria-label="New habit name" required>
+    <button class="solid" type="submit">Add habit</button>
+  </form>
+  <h4>Your data</h4>
+  <p class="hint">Everything is saved on this device. Export a backup now and then.</p>
+  <div class="fields wrap">
+    <button class="line" id="exportJson">Export backup (.json)</button>
+    <button class="line" id="exportCsv">Export sessions (.csv)</button>
+    <label class="line filebtn">Import backup<input type="file" id="importJson" accept="application/json,.json" hidden></label>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

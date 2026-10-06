@@ -1,0 +1,372 @@
+// Woodshed — habit hours tracker. Plain JS, no build step, data saved on this device.
+'use strict';
+
+const KEY = 'woodshed.v1';
+const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DEFAULT_HABITS = ['Sax', 'Piano', 'Production', 'Writing', 'Gym', 'Running'];
+
+// ---------- storage (swap this section for a sync backend later) ----------
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function blankHabit(name, order) {
+  return { id: uid(), name, order, retired: false, targets: [null, null, null, null, null, null, null] };
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && s.v === 1) return s;
+  } catch (e) { /* fall through to a fresh state */ }
+  return { v: 1, habits: DEFAULT_HABITS.map(blankHabit), sessions: [], marks: {}, timer: null };
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch (e) { toast('Could not save on this device'); }
+}
+let S = load();
+
+// ---------- dates (device local time) ----------
+const pad = n => String(n).padStart(2, '0');
+function dayKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function fromKey(k) { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); }
+function wd(d) { return (d.getDay() + 6) % 7; } // Mon = 0
+function monday(d) { const m = new Date(d.getFullYear(), d.getMonth(), d.getDate()); m.setDate(m.getDate() - wd(m)); return m; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 3 - ((t.getUTCDay() + 6) % 7));
+  const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((t - y) / 864e5 - 3 + ((y.getUTCDay() + 6) % 7)) / 7);
+}
+const fmtDate = d => d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
+function fm(m) {
+  m = Math.round(m);
+  if (m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + pad(m % 60) : '');
+}
+function clock(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
+  return (h ? h + ':' + pad(m) : m) + ':' + pad(s);
+}
+
+// ---------- data helpers ----------
+const active = () => S.habits.filter(h => !h.retired).sort((a, b) => a.order - b.order);
+const habit = id => S.habits.find(h => h.id === id);
+function minutesOn(habitId, key) {
+  let m = 0;
+  for (const s of S.sessions) if (s.habit === habitId && s.date === key) m += s.minutes;
+  return m;
+}
+function target(h, key) { return h.targets[wd(fromKey(key))]; }
+function isDone(h, key) {
+  const mk = key + '|' + h.id;
+  if (mk in S.marks) return S.marks[mk];
+  const t = target(h, key);
+  return !!t && minutesOn(h.id, key) >= t;
+}
+function addSession(habitId, key, minutes, at) {
+  const s = { id: uid(), habit: habitId, date: key, minutes: Math.round(minutes), at: at || new Date().toISOString() };
+  S.sessions.push(s);
+  save();
+  return s;
+}
+function removeSession(id) { S.sessions = S.sessions.filter(s => s.id !== id); save(); }
+
+// ---------- timer ----------
+function startTimer(habitId) {
+  if (S.timer) stopTimer();
+  S.timer = { habit: habitId, start: Date.now() };
+  save(); render();
+}
+function stopTimer() {
+  const t = S.timer;
+  if (!t) return;
+  S.timer = null;
+  const min = (Date.now() - t.start) / 60000;
+  const h = habit(t.habit);
+  if (min < 1) { save(); toast('Under a minute, not logged'); render(); return; }
+  const s = addSession(t.habit, dayKey(new Date(t.start)), min, new Date(t.start).toISOString());
+  toast(fm(min) + ' of ' + (h ? h.name : 'habit') + ' logged', () => { removeSession(s.id); render(); });
+  render();
+}
+
+// ---------- toast with undo ----------
+let toastTimer;
+function toast(text, undo) {
+  const el = document.getElementById('toast');
+  document.getElementById('toastText').textContent = text;
+  const u = document.getElementById('toastUndo');
+  u.hidden = !undo;
+  u.onclick = () => { if (undo) undo(); el.hidden = true; };
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+
+// ---------- render ----------
+const ICON = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  hide: '<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>',
+  show: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let weekOffset = 0;
+
+function render() { renderHeader(); renderToday(); renderWeek(); }
+
+function renderHeader() {
+  const now = new Date(), key = dayKey(now);
+  const mon = monday(now);
+  let today = 0, week = 0;
+  for (const s of S.sessions) {
+    if (s.date === key) today += s.minutes;
+    const d = fromKey(s.date);
+    if (d >= mon && d < addDays(mon, 7)) week += s.minutes;
+  }
+  const hs = active();
+  const done = hs.filter(h => isDone(h, key)).length;
+  const due = hs.filter(h => target(h, key)).length;
+  document.getElementById('dayName').textContent = DAY_NAMES[wd(now)];
+  document.getElementById('todaySub').innerHTML =
+    now.getDate() + ' ' + now.toLocaleDateString('en-GB', { month: 'long' }) +
+    ' · <b>' + fm(today) + '</b> today · ' + fm(week) + ' this week' +
+    (due ? ' · ' + done + '/' + due + ' done' : '');
+}
+
+function renderToday() {
+  const el = document.getElementById('today');
+  const key = dayKey(new Date());
+  const hs = active();
+  if (!hs.length) {
+    el.innerHTML = '<p class="empty">No habits yet. <button data-act="settings">Add one</button></p>';
+    return;
+  }
+  el.innerHTML = hs.map(h => {
+    const m = minutesOn(h.id, key), t = target(h, key), done = isDone(h, key);
+    const running = S.timer && S.timer.habit === h.id;
+    const p = t ? Math.min(100, m / t * 100) : 0;
+    const meta = running
+      ? '<p class="meta live" data-live>' + clock(Math.floor((Date.now() - S.timer.start) / 1000)) + '</p>'
+      : '<p class="meta">' + fm(m) + (t ? ' / ' + fm(t) : h.targets.some(Boolean) ? ' · rest day' : ' · no target set') + '</p>';
+    return '<div class="row">' +
+      '<div class="nm"><p class="name">' + esc(h.name) + '</p>' + meta +
+      (t ? '<div class="bar"><i style="width:' + p + '%"></i></div>' : '') + '</div>' +
+      '<button class="btn play' + (running ? ' on' : '') + '" data-act="timer" data-id="' + h.id + '" aria-label="' + (running ? 'Stop' : 'Start') + ' ' + esc(h.name) + ' timer">' + (running ? ICON.stop : ICON.play) + '</button>' +
+      '<button class="btn" data-act="add" data-min="15" data-id="' + h.id + '" aria-label="Add 15 minutes of ' + esc(h.name) + '">+15</button>' +
+      '<button class="btn" data-act="add" data-min="30" data-id="' + h.id + '" aria-label="Add 30 minutes of ' + esc(h.name) + '">+30</button>' +
+      '<button class="done' + (done ? ' on' : '') + (t ? '' : ' rest') + '" data-act="mark" data-id="' + h.id + '" data-day="' + key + '" aria-label="' + (done ? 'Done' : 'Not done') + ': ' + esc(h.name) + '">' + (done ? ICON.check : '') + '</button>' +
+      '</div>';
+  }).join('');
+}
+
+function renderWeek() {
+  const now = new Date(), todayKey = dayKey(now);
+  const mon = addDays(monday(now), weekOffset * 7);
+  const days = [...Array(7)].map((_, i) => addDays(mon, i));
+  const keys = days.map(dayKey);
+  const label = weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : 'Week ' + isoWeek(mon) + ' · ' + mon.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  document.getElementById('weekLabel').textContent = label;
+  document.getElementById('nextWeek').style.visibility = weekOffset < 0 ? 'visible' : 'hidden';
+
+  let g = '<div></div>' + days.map((d, i) =>
+    '<div class="dh' + (keys[i] === todayKey ? ' t' : '') + '"><button data-act="day" data-day="' + keys[i] + '" aria-label="' + fmtDate(d) + '">' + DAYS[i] + '<small>' + d.getDate() + '</small></button></div>'
+  ).join('') + '<div class="dh">Σ</div>';
+
+  for (const h of active()) {
+    g += '<div class="hl">' + esc(h.name) + '</div>';
+    let wk = 0;
+    keys.forEach((k, i) => {
+      const m = minutesOn(h.id, k), t = h.targets[i];
+      wk += m;
+      const tc = k === todayKey ? ' tc' : '';
+      const lbl = esc(h.name) + ', ' + fmtDate(days[i]) + ': ' + fm(m) + (t ? ' of ' + fm(t) : '');
+      if (k > todayKey) { g += '<div class="c fut" aria-hidden="true"></div>'; return; }
+      if (!t) {
+        const ok = isDone(h, k);
+        g += '<button class="c rest' + (m ? ' has' : '') + (ok ? ' ok' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + ', rest day"><i style="height:' + (m ? 100 : 0) + '%"></i></button>';
+        return;
+      }
+      const ok = isDone(h, k);
+      g += '<button class="c' + (ok ? ' ok' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + (ok ? ', done' : '') + '"><i style="height:' + Math.min(100, m / t * 100) + '%"></i></button>';
+    });
+    g += '<div class="tot">' + (wk ? fm(wk) : '') + '</div>';
+  }
+  document.getElementById('grid').innerHTML = g;
+}
+
+// ---------- day sheet ----------
+let openDay = null;
+function showDay(key) {
+  openDay = key;
+  renderDay();
+  const sel = document.getElementById('addHabit');
+  sel.innerHTML = active().map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
+  const dlg = document.getElementById('dayDialog');
+  if (!dlg.open) dlg.showModal();
+}
+function renderDay() {
+  const key = openDay, d = fromKey(key);
+  document.getElementById('dayTitle').textContent = fmtDate(d);
+  const blocks = active().map(h => {
+    const ss = S.sessions.filter(s => s.habit === h.id && s.date === key);
+    const m = ss.reduce((a, s) => a + s.minutes, 0), t = target(h, key);
+    const rows = ss.map(s => {
+      const at = new Date(s.at);
+      const time = isNaN(at) ? '' : at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      return '<div class="sess"><span>' + fm(s.minutes) + (time ? ' · ' + time : '') + '</span><button data-act="del" data-sid="' + s.id + '" aria-label="Delete this session">' + ICON.x + '</button></div>';
+    }).join('');
+    return '<div class="dhab"><div class="h">' + esc(h.name) + '<span>' + fm(m) + (t ? ' / ' + fm(t) : ' · rest') + (isDone(h, key) ? ' · done' : '') + '</span></div>' + rows + '</div>';
+  });
+  document.getElementById('dayList').innerHTML = blocks.length ? blocks.join('') : '<p class="nothing">No habits yet.</p>';
+}
+
+// ---------- settings sheet ----------
+function showSettings() { renderSettings(); document.getElementById('settingsDialog').showModal(); }
+function renderSettings() {
+  const hs = [...S.habits].sort((a, b) => (a.retired - b.retired) || (a.order - b.order));
+  document.getElementById('habitEditor').innerHTML = hs.map(h =>
+    '<div class="hed' + (h.retired ? ' retired' : '') + '" data-id="' + h.id + '">' +
+      '<div class="r1"><input value="' + esc(h.name) + '" data-f="name" aria-label="Habit name">' +
+      (h.retired ? '' :
+        '<button data-act="move" data-dir="-1" aria-label="Move up">' + ICON.up + '</button>' +
+        '<button data-act="move" data-dir="1" aria-label="Move down">' + ICON.down + '</button>') +
+      '<button data-act="retire" aria-label="' + (h.retired ? 'Bring back' : 'Retire') + ' ' + esc(h.name) + '" title="' + (h.retired ? 'Bring back' : 'Retire (keeps history)') + '">' + (h.retired ? ICON.show : ICON.hide) + '</button></div>' +
+      (h.retired ? '' :
+        '<div class="tg">' + DAYS.map((d, i) =>
+          '<div><label for="t' + h.id + i + '">' + d + '</label><input id="t' + h.id + i + '" type="number" inputmode="numeric" min="0" max="720" placeholder="–" value="' + (h.targets[i] ?? '') + '" data-f="t" data-i="' + i + '"></div>'
+        ).join('') + '</div><button class="copy" data-act="copyMon">Copy Monday to all days</button>') +
+    '</div>'
+  ).join('');
+}
+
+// ---------- events ----------
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const act = b.dataset.act, id = b.dataset.id;
+  if (act === 'timer') { S.timer && S.timer.habit === id ? stopTimer() : startTimer(id); }
+  else if (act === 'add') {
+    const s = addSession(id, dayKey(new Date()), +b.dataset.min);
+    toast('+' + b.dataset.min + 'm ' + habit(id).name, () => { removeSession(s.id); render(); });
+    render();
+  }
+  else if (act === 'mark') {
+    const h = habit(id), key = b.dataset.day, mk = key + '|' + id;
+    const want = !isDone(h, key);
+    delete S.marks[mk];
+    if (isDone(h, key) !== want) S.marks[mk] = want;
+    save(); render();
+  }
+  else if (act === 'day') showDay(b.dataset.day);
+  else if (act === 'del') {
+    const s = S.sessions.find(x => x.id === b.dataset.sid);
+    removeSession(b.dataset.sid);
+    toast('Session deleted', () => { S.sessions.push(s); save(); renderDay(); render(); });
+    renderDay(); render();
+  }
+  else if (act === 'settings') showSettings();
+  else if (act === 'move' || act === 'retire' || act === 'copyMon') {
+    const hid = b.closest('.hed').dataset.id, h = habit(hid);
+    if (act === 'retire') { h.retired = !h.retired; if (!h.retired) h.order = Math.max(0, ...S.habits.map(x => x.order)) + 1; }
+    if (act === 'copyMon') h.targets = h.targets.map(() => h.targets[0]);
+    if (act === 'move') {
+      const list = active(), i = list.indexOf(h), j = i + +b.dataset.dir;
+      if (j >= 0 && j < list.length) { const o = list[j].order; list[j].order = h.order; h.order = o; }
+      if (list[j] && list[j].order === h.order) h.order += +b.dataset.dir;
+    }
+    save(); renderSettings(); render();
+  }
+});
+
+document.getElementById('habitEditor').addEventListener('change', e => {
+  const inp = e.target, h = habit(inp.closest('.hed').dataset.id);
+  if (inp.dataset.f === 'name') { const v = inp.value.trim(); if (v) h.name = v; else inp.value = h.name; }
+  if (inp.dataset.f === 't') {
+    const v = parseInt(inp.value, 10);
+    h.targets[+inp.dataset.i] = v > 0 ? Math.min(v, 720) : null;
+  }
+  save(); render();
+});
+
+document.getElementById('newHabitForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const inp = document.getElementById('newHabitName'), name = inp.value.trim();
+  if (!name) return;
+  S.habits.push(blankHabit(name, Math.max(0, ...S.habits.map(h => h.order)) + 1));
+  inp.value = '';
+  save(); renderSettings(); render();
+});
+
+document.getElementById('addForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const min = parseInt(document.getElementById('addMin').value, 10);
+  const hid = document.getElementById('addHabit').value;
+  if (!(min > 0) || !hid) return;
+  // a past-day session gets noon as its time; today's gets now
+  const at = openDay === dayKey(new Date()) ? new Date() : (() => { const d = fromKey(openDay); d.setHours(12); return d; })();
+  addSession(hid, openDay, Math.min(min, 720), at.toISOString());
+  document.getElementById('addMin').value = '';
+  renderDay(); render();
+});
+
+document.getElementById('openSettings').onclick = showSettings;
+document.getElementById('prevWeek').onclick = () => { weekOffset--; renderWeek(); };
+document.getElementById('nextWeek').onclick = () => { if (weekOffset < 0) weekOffset++; renderWeek(); };
+
+// close sheets by tapping the backdrop
+for (const d of document.querySelectorAll('dialog')) {
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+}
+
+// ---------- export / import ----------
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+document.getElementById('exportJson').onclick = () =>
+  download('woodshed-backup-' + dayKey(new Date()) + '.json', JSON.stringify(S, null, 2), 'application/json');
+document.getElementById('exportCsv').onclick = () => {
+  const rows = [['date', 'habit', 'minutes', 'logged_at']].concat(
+    [...S.sessions].sort((a, b) => a.date.localeCompare(b.date))
+      .map(s => [s.date, (habit(s.habit) || { name: s.habit }).name, s.minutes, s.at]));
+  download('woodshed-sessions-' + dayKey(new Date()) + '.csv',
+    rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n'), 'text/csv');
+};
+document.getElementById('importJson').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.v !== 1 || !Array.isArray(data.habits) || !Array.isArray(data.sessions)) throw new Error('bad file');
+    if (!confirm('Replace everything on this device with this backup?')) return;
+    S = data; save(); renderSettings(); render();
+    toast('Backup imported');
+  } catch (err) { toast('That file isn’t a Woodshed backup'); }
+  e.target.value = '';
+});
+
+// ---------- live clock + day rollover ----------
+let lastKey = dayKey(new Date());
+setInterval(() => {
+  const k = dayKey(new Date());
+  if (k !== lastKey) { lastKey = k; render(); return; }
+  if (S.timer) {
+    const el = document.querySelector('[data-live]');
+    if (el) el.textContent = clock(Math.floor((Date.now() - S.timer.start) / 1000));
+  }
+}, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { S = load(); render(); } });
+
+render();
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
