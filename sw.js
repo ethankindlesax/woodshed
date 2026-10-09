@@ -1,6 +1,6 @@
 // Offline support. App files: newest from the network when online, saved copy when offline.
 // Fonts: saved copy first (they never change).
-const CACHE = 'woodshed-v3-3';
+const CACHE = 'woodshed-v3-5';
 const FILES = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'sync.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

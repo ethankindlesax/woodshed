@@ -9,6 +9,7 @@
   --blue: #6f8fae;
   --pale: #b9cbdb;
   --wash: #e8eff5;
+  --stamp: #c4462e;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -65,6 +66,13 @@ h1 { font-size: 32px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.
 .empty { padding: 28px 0; color: var(--mute); font-size: 15px; text-align: center; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .empty button { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; }
 
+/* Streaks */
+.streaks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.sk { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--stamp); border: 1px solid var(--stamp); border-radius: 3px; padding: 1px 5px; transform: rotate(-2deg); }
+.sk b { font-weight: 500; }
+.sk.wk { transform: rotate(1.5deg); }
+.sk.open { border-style: dashed; opacity: .7; }
+
 /* Week */
 .week { margin-top: 28px; }
 .weekhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -76,21 +84,28 @@ h2 { font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: 
 .dh small { display: block; font-size: 10px; letter-spacing: 0; }
 .hl { font-size: 12px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tot { font-size: 11px; color: var(--mute); text-align: right; }
-.c { aspect-ratio: 1; border: 1px solid #dfe6ec; position: relative; display: grid; place-items: center; overflow: hidden; }
-.c i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--pale); }
-.c.ok i { background: var(--blue); }
-.c.ok::after { content: ""; width: 4px; height: 4px; border-radius: 50%; background: #fff; position: relative; }
-.c.rest { border-color: transparent; background: none; }
-.c.rest::before { content: ""; width: 8px; height: 1px; background: var(--line2); position: relative; z-index: 1; }
-.c.rest.has i { background: var(--wash); }
+.c { aspect-ratio: 1; border: 1px solid #dfe6ec; border-radius: 4px; position: relative; display: grid; place-items: center; }
 .c.fut { border-style: dashed; border-color: #e6ebef; }
 .c.tc { border-color: var(--ink); }
+.c.ok, .c.part { border-color: transparent; }
+.c.tc.ok, .c.tc.part { border-color: var(--ink); }
+/* rubber stamp: inked ring + habit icon, a little crooked like it was pressed by hand */
+.stamp {
+  --ink-c: var(--stamp);
+  width: 100%; aspect-ratio: 1; border-radius: 50%;
+  border: 2px solid var(--ink-c); color: var(--ink-c);
+  box-shadow: inset 0 0 0 1.5px var(--bg), inset 0 0 0 2.5px var(--ink-c);
+  display: grid; place-items: center;
+  transform: rotate(var(--r, 0deg));
+  mix-blend-mode: multiply;
+}
+.stamp svg { width: 70%; height: 70%; stroke-width: 1.8; }
+.stamp.faint { --ink-c: var(--pale); border-style: dashed; box-shadow: none; }
+.c.ok .stamp { animation: thunk .28s ease-out both; }
+@keyframes thunk { from { transform: rotate(var(--r)) scale(1.35); opacity: 0; } to { transform: rotate(var(--r)) scale(1); opacity: 1; } }
 .legend { font-size: 11px; color: var(--mute); margin-top: 16px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.lg { display: inline-block; width: 10px; height: 10px; border: 1px solid #dfe6ec; margin-left: 6px; }
-.lg:first-child { margin-left: 0; }
-.lg.fill { background: linear-gradient(to top, var(--pale) 50%, transparent 50%); }
-.lg.ok { background: var(--blue); border-color: var(--blue); }
-.lg.rest { border-color: transparent; background: linear-gradient(var(--line2), var(--line2)) center / 8px 1px no-repeat; }
+.legend .stamp { width: 18px; margin-left: 8px; animation: none; }
+.legend .stamp:first-child { margin-left: 0; }
 
 /* Toast */
 .toast {

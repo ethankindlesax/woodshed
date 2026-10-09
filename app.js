@@ -67,6 +67,51 @@ function isDone(h, key) {
   const t = target(h, key);
   return !!t && minutesOn(h.id, key) >= t;
 }
+// stamped = what the week grid stamps: target hit, or any time on a day with no target (a manual mark wins)
+function stamped(h, key, mins) {
+  const v = S.marks[key + '|' + h.id];
+  if (v === true || v === false) return v;
+  const t = target(h, key), m = mins === undefined ? minutesOn(h.id, key) : mins;
+  return t ? m >= t : m > 0;
+}
+
+// ---------- streaks ----------
+// days: stamped days in a row, ending today (or yesterday while today is still open)
+// weeks: Mon–Sun weeks in a row that hold 3+ stamped days in a row
+const STREAK_MIN_DAYS = 3;
+function minutesMap() {
+  const mm = {};
+  for (const s of S.sessions) if (!s.deleted) mm[s.habit + '|' + s.date] = (mm[s.habit + '|' + s.date] || 0) + s.minutes;
+  return mm;
+}
+function streaks(h, mm) {
+  const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const st = d => stamped(h, dayKey(d), mm[h.id + '|' + dayKey(d)] || 0);
+  const todayDone = st(today);
+  let d = todayDone ? today : addDays(today, -1), days = 0;
+  while (days < 3660 && st(d)) { days++; d = addDays(d, -1); }
+  const weekOk = mon => {
+    let run = 0;
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(mon, i);
+      if (day > today) break;
+      run = st(day) ? run + 1 : 0;
+      if (run >= STREAK_MIN_DAYS) return true;
+    }
+    return false;
+  };
+  let mon = monday(today), weeks = 0;
+  if (!weekOk(mon)) mon = addDays(mon, -7);
+  while (weeks < 520 && weekOk(mon)) { weeks++; mon = addDays(mon, -7); }
+  return { days, weeks, todayDone };
+}
+function streakTags(h, mm) {
+  const r = streaks(h, mm), out = [];
+  if (r.days >= STREAK_MIN_DAYS) out.push('<span class="sk' + (r.todayDone ? '' : ' open') + '" title="' + (r.todayDone ? 'Stamped today' : 'Log today to keep it') + '"><b>' + r.days + '</b> days in a row</span>');
+  if (r.weeks) out.push('<span class="sk wk"><b>' + r.weeks + '</b> week' + (r.weeks > 1 ? 's' : '') + ' in a row</span>');
+  return out.length ? '<p class="streaks">' + out.join('') + '</p>' : '';
+}
+
 function addSession(habitId, key, minutes, at) {
   const s = { id: uid(), habit: habitId, date: key, minutes: Math.round(minutes), at: at || new Date().toISOString() };
   S.sessions.push(s);
@@ -120,6 +165,31 @@ const ICON = {
   hide: '<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>',
   show: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'
 };
+// rubber stamps for the week grid, picked from the habit's name (any habit works; unknown names get a check)
+const STAMP = {
+  sax: '<path d="M3.5 4l4.6-.6c1.4-.1 2 .7 2 2"/><path d="M10.1 6v9.3a3.4 3.4 0 0 0 6.8 0V12.5" stroke-width="3.2"/><path d="M14.6 11.4h5.4" stroke-width="2.6"/><g fill="#f5f7f8" stroke="none"><circle cx="10.1" cy="8.5" r=".75"/><circle cx="10.1" cy="11.3" r=".75"/><circle cx="10.1" cy="14.1" r=".75"/></g>',
+  piano: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><path d="M7.75 12.5v6M12 12.5v6M16.25 12.5v6"/><path d="M7 5.5v7h1.5v-7M11.25 5.5v7h1.5v-7M15.5 5.5v7h1.5v-7" fill="currentColor"/>',
+  muscle: '<path d="M3 13c2-3.5 6.5-5.5 9.4-2.8l.6-2.6c-1.3-.3-1.8-1.8-1-2.8l1.2-1.4c.8-.9 2.3-.9 3.2 0l1.3 1.6c.6.8.6 1.6.3 2.4l-.4 7.6c.3 2-1 3.6-3 3.6H3z"/><path d="M12.4 10.2c.9 1 1.2 2.3 1 3.6"/>',
+  clef: '<path d="M12.6 20.5c-.2 1.6-3.3 1.7-3.4-.1-.1-1.4 1.8-1.9 2.4-.8"/><path d="M12.6 20.5 11.4 3.8c-.1-1.5 2.5-1.6 2.6.4.1 2.9-5.7 5.4-5.7 9.6 0 2.6 2.2 4.1 4.4 4 2.1-.1 3.5-1.6 3.4-3.3-.1-1.8-1.5-2.9-3.1-2.8-1.7.1-2.6 1.4-2.5 2.6"/>',
+  phones: '<path d="M4.5 15v-3a7.5 7.5 0 0 1 15 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.4"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.4"/>',
+  shoe: '<path d="M3.5 17.5v-6.8c0-.6.6-1 1.2-.8 2 .7 3.7.4 4.6-1.6l.5-1.1c.2-.4.7-.6 1.1-.3 2.2 1.6 4.4 4 7.3 4.9 1.6.5 2.3 1.7 2.3 3.2v2.5z"/><path d="M3.5 15h17.1M12 9.6l-1.6 1.6M14 11.3l-1.6 1.6"/>',
+  check: '<path d="M5.5 12.5l4.2 4.2L18.5 7.5"/>'
+};
+function stampFor(name) {
+  const n = name.toLowerCase();
+  if (/sax|horn|trumpet|trombone|clarinet|flute/.test(n)) return 'sax';
+  if (/piano|keys|keyboard/.test(n)) return 'piano';
+  if (/gym|lift|weight|strength|workout|muscle/.test(n)) return 'muscle';
+  if (/writ|compos|song|arrang|chart/.test(n)) return 'clef';
+  if (/produc|beat|mix|daw|record|ableton|logic/.test(n)) return 'phones';
+  if (/run|jog|walk|cardio/.test(n)) return 'shoe';
+  return 'check';
+}
+// each stamp lands at its own slight angle, same every time for the same cell
+function tilt(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (Math.abs(h) % 19) - 9; }
+function stamp(h, key, cls) {
+  return '<span class="stamp ' + cls + '" style="--r:' + tilt(key + h.id) + 'deg"><svg viewBox="0 0 24 24">' + STAMP[stampFor(h.name)] + '</svg></span>';
+}
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let weekOffset = 0;
 
@@ -153,6 +223,7 @@ function renderToday() {
     el.innerHTML = '<p class="empty">No habits yet. <button data-act="settings">Add one</button></p>';
     return;
   }
+  const mm = minutesMap();
   el.innerHTML = hs.map(h => {
     const m = minutesOn(h.id, key), t = target(h, key), done = isDone(h, key);
     const running = S.timer && S.timer.habit === h.id;
@@ -161,7 +232,7 @@ function renderToday() {
       ? '<p class="meta live" data-live>' + clock(Math.floor((Date.now() - S.timer.start) / 1000)) + '</p>'
       : '<p class="meta">' + fm(m) + (t ? ' / ' + fm(t) : h.targets.some(Boolean) ? ' · rest day' : ' · no target set') + '</p>';
     return '<div class="row">' +
-      '<div class="nm"><p class="name">' + esc(h.name) + '</p>' + meta +
+      '<div class="nm"><p class="name">' + esc(h.name) + '</p>' + meta + streakTags(h, mm) +
       (t ? '<div class="bar"><i style="width:' + p + '%"></i></div>' : '') + '</div>' +
       '<button class="btn play' + (running ? ' on' : '') + '" data-act="timer" data-id="' + h.id + '" aria-label="' + (running ? 'Stop' : 'Start') + ' ' + esc(h.name) + ' timer">' + (running ? ICON.stop : ICON.play) + '</button>' +
       '<button class="btn" data-act="add" data-min="15" data-id="' + h.id + '" aria-label="Add 15 minutes of ' + esc(h.name) + '">+15</button>' +
@@ -193,13 +264,12 @@ function renderWeek() {
       const tc = k === todayKey ? ' tc' : '';
       const lbl = esc(h.name) + ', ' + fmtDate(days[i]) + ': ' + fm(m) + (t ? ' of ' + fm(t) : '');
       if (k > todayKey) { g += '<div class="c fut" aria-hidden="true"></div>'; return; }
-      if (!t) {
-        const ok = isDone(h, k);
-        g += '<button class="c rest' + (m ? ' has' : '') + (ok ? ' ok' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + ', rest day"><i style="height:' + (m ? 100 : 0) + '%"></i></button>';
-        return;
-      }
-      const ok = isDone(h, k);
-      g += '<button class="c' + (ok ? ' ok' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + (ok ? ', done' : '') + '"><i style="height:' + Math.min(100, m / t * 100) + '%"></i></button>';
+      // stamped = did it (target hit, or any time on a no-target day); faint stamp = started, short of target
+      const ok = stamped(h, k, m);
+      const part = !ok && m > 0;
+      const state = ok ? ', done' : part ? ', started' : '';
+      g += '<button class="c' + (ok ? ' ok' : part ? ' part' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + state + '">' +
+        (ok ? stamp(h, k, '') : part ? stamp(h, k, 'faint') : '') + '</button>';
     });
     g += '<div class="tot">' + (wk ? fm(wk) : '') + '</div>';
   }
