@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f5f7f8">
+<meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Woodshed">
 <title>Woodshed</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,23 +13,35 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main class="app">
   <header class="top">
-    <div>
-      <h1 id="dayName">Today</h1>
-      <p class="sub" id="todaySub"></p>
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64">
+        <path d="M2 24 32 4l30 20v38H2z" fill="#111"/>
+        <path d="M8 34h48M8 42h12M44 42h12M8 50h12M44 50h12" stroke="#1e6fe0" stroke-width="1.6"/>
+        <circle cx="32" cy="21" r="9.5" fill="#1e6fe0"/>
+        <path d="M33.2 25.2V14.2c1.6 2.4 4.2 2.6 4 5.6" stroke="#111" stroke-width="2.2" fill="none"/>
+        <ellipse cx="30.4" cy="25.6" rx="3.3" ry="2.4" fill="#111" transform="rotate(-20 30.4 25.6)"/>
+        <rect x="23" y="38" width="18" height="24" fill="#1e6fe0"/>
+        <circle cx="37" cy="51" r="1.3" fill="#111"/>
+      </svg>
+      <span>Est. 2026</span>
+    </div>
+    <div class="titles">
+      <p class="logo"><span>Woodshed</span></p>
+      <p class="kick" id="kick"></p>
+      <h1 class="big" id="big"><span class="p"></span><span class="b"></span></h1>
+      <p class="sub" id="sub"></p>
     </div>
     <button class="ghost icon" id="openSettings" aria-label="Habits and settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       <span id="syncDot" class="syncdot off"></span>
     </button>
   </header>
-
-  <section id="today" class="today" aria-label="Today's habits"></section>
 
   <section class="week" aria-label="Week">
     <div class="weekhead">
@@ -38,7 +50,7 @@
       <button class="ghost icon" id="nextWeek" aria-label="Next week"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
     <div id="grid" class="grid"></div>
-    <p class="legend"><span class="stamp" style="--r:-6deg"><svg viewBox="0 0 24 24"><path d="M5.5 12.5l4.2 4.2L18.5 7.5"/></svg></span>did it <span class="stamp faint" style="--r:5deg"><svg viewBox="0 0 24 24"><path d="M5.5 12.5l4.2 4.2L18.5 7.5"/></svg></span>started, short of target</p>
+    <p class="legend"><span class="key k1"></span>under 1h <span class="key k2"></span>1h+ <span class="key k3"></span>2h+ <em>Tap a square to log</em></p>
   </section>
 </main>
 
@@ -46,22 +58,20 @@
   <span id="toastText"></span><button id="toastUndo" class="link">Undo</button>
 </div>
 
-<dialog id="dayDialog" class="sheet">
-  <form method="dialog" class="sheethead"><h3 id="dayTitle"></h3><button class="ghost icon" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
-  <div id="dayList"></div>
-  <form id="addForm" class="addform">
-    <h4>Add a session</h4>
-    <div class="fields">
-      <select id="addHabit" aria-label="Habit"></select>
-      <input id="addMin" type="number" inputmode="numeric" min="1" max="720" placeholder="Minutes" aria-label="Minutes" required>
-      <button class="solid" type="submit">Add</button>
-    </div>
+<dialog id="cellDialog" class="sheet">
+  <form method="dialog" class="sheethead">
+    <div><h3 id="cellTitle"></h3><p class="sheetsub" id="cellSub"></p></div>
+    <button class="ghost icon" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </form>
+  <div class="adds">
+    <button class="add a30" data-act="add" data-min="30">+30<small>min</small></button>
+    <button class="add a60" data-act="add" data-min="60">+1<small>hour</small></button>
+  </div>
+  <div id="cellList"></div>
 </dialog>
 
 <dialog id="settingsDialog" class="sheet">
   <form method="dialog" class="sheethead"><h3>Habits</h3><button class="ghost icon" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
-  <p class="hint">Daily targets in minutes. Leave a day empty for a rest day.</p>
   <div id="habitEditor"></div>
   <form id="newHabitForm" class="fields">
     <input id="newHabitName" placeholder="New habit" aria-label="New habit name" required>

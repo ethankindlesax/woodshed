@@ -3,10 +3,10 @@
 
 const KEY = 'woodshed.v1';
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const DEFAULT_HABITS = ['Sax', 'Piano', 'Production', 'Writing', 'Gym', 'Running'];
+const DEFAULT_HABITS = ['Sax', 'Piano', 'Production', 'Writing', 'Gym', 'Run'];
 
 // ---------- storage (swap this section for a sync backend later) ----------
+// Old fields (targets, marks, timer) stay in the data so older backups and sync keep working; the app no longer uses them.
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function blankHabit(name, order) {
   return { id: uid(), name, order, retired: false, targets: [null, null, null, null, null, null, null] };
@@ -40,53 +40,31 @@ function isoWeek(d) {
   return 1 + Math.round(((t - y) / 864e5 - 3 + ((y.getUTCDay() + 6) % 7)) / 7);
 }
 const fmtDate = d => d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const fmtTime = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 
 function fm(m) {
   m = Math.round(m);
   if (m < 60) return m + 'm';
-  return Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + pad(m % 60) : '');
-}
-function clock(sec) {
-  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
-  return (h ? h + ':' + pad(m) : m) + ':' + pad(s);
+  return Math.floor(m / 60) + 'h' + (m % 60 ? pad(m % 60) : '');
 }
 
 // ---------- data helpers ----------
 const active = () => S.habits.filter(h => !h.retired).sort((a, b) => a.order - b.order);
 const habit = id => S.habits.find(h => h.id === id);
-function minutesOn(habitId, key) {
-  let m = 0;
-  for (const s of S.sessions) if (!s.deleted && s.habit === habitId && s.date === key) m += s.minutes;
-  return m;
-}
-function target(h, key) { return h.targets[wd(fromKey(key))]; }
-function isDone(h, key) {
-  const mk = key + '|' + h.id;
-  const v = S.marks[mk];
-  if (v === true || v === false) return v;
-  const t = target(h, key);
-  return !!t && minutesOn(h.id, key) >= t;
-}
-// stamped = what the week grid stamps: target hit, or any time on a day with no target (a manual mark wins)
-function stamped(h, key, mins) {
-  const v = S.marks[key + '|' + h.id];
-  if (v === true || v === false) return v;
-  const t = target(h, key), m = mins === undefined ? minutesOn(h.id, key) : mins;
-  return t ? m >= t : m > 0;
-}
-
-// ---------- streaks ----------
-// days: stamped days in a row, ending today (or yesterday while today is still open)
-// weeks: Mon–Sun weeks in a row that hold 3+ stamped days in a row
-const STREAK_MIN_DAYS = 3;
 function minutesMap() {
   const mm = {};
   for (const s of S.sessions) if (!s.deleted) mm[s.habit + '|' + s.date] = (mm[s.habit + '|' + s.date] || 0) + s.minutes;
   return mm;
 }
+
+// ---------- streaks ----------
+// a day counts once any time is logged for that habit
+// days: logged days in a row, ending today (or yesterday while today is still open)
+// weeks: Mon–Sun weeks in a row that hold 3+ logged days in a row
+const STREAK_MIN_DAYS = 3;
 function streaks(h, mm) {
   const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const st = d => stamped(h, dayKey(d), mm[h.id + '|' + dayKey(d)] || 0);
+  const st = d => (mm[h.id + '|' + dayKey(d)] || 0) > 0;
   const todayDone = st(today);
   let d = todayDone ? today : addDays(today, -1), days = 0;
   while (days < 3660 && st(d)) { days++; d = addDays(d, -1); }
@@ -107,9 +85,9 @@ function streaks(h, mm) {
 }
 function streakTags(h, mm) {
   const r = streaks(h, mm), out = [];
-  if (r.days >= STREAK_MIN_DAYS) out.push('<span class="sk' + (r.todayDone ? '' : ' open') + '" title="' + (r.todayDone ? 'Stamped today' : 'Log today to keep it') + '"><b>' + r.days + '</b> days in a row</span>');
-  if (r.weeks) out.push('<span class="sk wk"><b>' + r.weeks + '</b> week' + (r.weeks > 1 ? 's' : '') + ' in a row</span>');
-  return out.length ? '<p class="streaks">' + out.join('') + '</p>' : '';
+  if (r.days >= STREAK_MIN_DAYS) out.push('<span class="sk' + (r.todayDone ? '' : ' open') + '" title="' + (r.todayDone ? 'Logged today' : 'Log today to keep it') + '">' + r.days + ' days</span>');
+  if (r.weeks) out.push('<span class="sk wk">' + r.weeks + ' wk' + (r.weeks > 1 ? 's' : '') + '</span>');
+  return out.join('');
 }
 
 function addSession(habitId, key, minutes, at) {
@@ -121,24 +99,6 @@ function addSession(habitId, key, minutes, at) {
 function removeSession(id) {
   const s = S.sessions.find(x => x.id === id);
   if (s) { s.deleted = true; save(); pend('sessions', id); }
-}
-
-// ---------- timer ----------
-function startTimer(habitId) {
-  if (S.timer) stopTimer();
-  S.timer = { habit: habitId, start: Date.now() };
-  save(); render();
-}
-function stopTimer() {
-  const t = S.timer;
-  if (!t) return;
-  S.timer = null;
-  const min = (Date.now() - t.start) / 60000;
-  const h = habit(t.habit);
-  if (min < 1) { save(); toast('Under a minute, not logged'); render(); return; }
-  const s = addSession(t.habit, dayKey(new Date(t.start)), min, new Date(t.start).toISOString());
-  toast(fm(min) + ' of ' + (h ? h.name : 'habit') + ' logged', () => { removeSession(s.id); render(); });
-  render();
 }
 
 // ---------- toast with undo ----------
@@ -156,24 +116,21 @@ function toast(text, undo) {
 
 // ---------- render ----------
 const ICON = {
-  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>',
-  stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>',
-  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
   hide: '<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>',
   show: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>'
 };
-// rubber stamps for the week grid, picked from the habit's name (any habit works; unknown names get a check)
+// rubber stamps for the calendar, picked from the habit's name (any habit works; unknown names get a check)
 const STAMP = {
-  sax: '<path d="M3.5 4l4.6-.6c1.4-.1 2 .7 2 2"/><path d="M10.1 6v9.3a3.4 3.4 0 0 0 6.8 0V12.5" stroke-width="3.2"/><path d="M14.6 11.4h5.4" stroke-width="2.6"/><g fill="#f5f7f8" stroke="none"><circle cx="10.1" cy="8.5" r=".75"/><circle cx="10.1" cy="11.3" r=".75"/><circle cx="10.1" cy="14.1" r=".75"/></g>',
-  piano: '<rect x="3.5" y="5.5" width="17" height="13" rx="1"/><path d="M7.75 12.5v6M12 12.5v6M16.25 12.5v6"/><path d="M7 5.5v7h1.5v-7M11.25 5.5v7h1.5v-7M15.5 5.5v7h1.5v-7" fill="currentColor"/>',
-  muscle: '<path d="M3 13c2-3.5 6.5-5.5 9.4-2.8l.6-2.6c-1.3-.3-1.8-1.8-1-2.8l1.2-1.4c.8-.9 2.3-.9 3.2 0l1.3 1.6c.6.8.6 1.6.3 2.4l-.4 7.6c.3 2-1 3.6-3 3.6H3z"/><path d="M12.4 10.2c.9 1 1.2 2.3 1 3.6"/>',
-  clef: '<path d="M12.6 20.5c-.2 1.6-3.3 1.7-3.4-.1-.1-1.4 1.8-1.9 2.4-.8"/><path d="M12.6 20.5 11.4 3.8c-.1-1.5 2.5-1.6 2.6.4.1 2.9-5.7 5.4-5.7 9.6 0 2.6 2.2 4.1 4.4 4 2.1-.1 3.5-1.6 3.4-3.3-.1-1.8-1.5-2.9-3.1-2.8-1.7.1-2.6 1.4-2.5 2.6"/>',
-  phones: '<path d="M4.5 15v-3a7.5 7.5 0 0 1 15 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.4"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.4"/>',
-  shoe: '<path d="M3.5 17.5v-6.8c0-.6.6-1 1.2-.8 2 .7 3.7.4 4.6-1.6l.5-1.1c.2-.4.7-.6 1.1-.3 2.2 1.6 4.4 4 7.3 4.9 1.6.5 2.3 1.7 2.3 3.2v2.5z"/><path d="M3.5 15h17.1M12 9.6l-1.6 1.6M14 11.3l-1.6 1.6"/>',
-  check: '<path d="M5.5 12.5l4.2 4.2L18.5 7.5"/>'
+  sax: '<path d="M2.6 4.4 8.4 3.2c1.4-.3 2.5.7 2.5 2" stroke-width="2"/><path d="M10.9 5.4v10.2a3.7 3.7 0 0 0 7.4 0V11" stroke-width="3.8"/><path d="M15.2 8.4h6.2l-1.5 3.1h-3.2z" fill="currentColor" stroke="none"/><g class="hole" stroke="none"><circle cx="10.9" cy="8.2" r=".9"/><circle cx="10.9" cy="11.1" r=".9"/><circle cx="10.9" cy="14" r=".9"/></g>',
+  piano: '<rect x="2.5" y="5" width="19" height="14" rx="1" fill="currentColor" stroke="none"/><g class="hole" stroke="none"><rect x="4" y="12.6" width="3.2" height="5" rx=".3"/><rect x="8.2" y="12.6" width="3.2" height="5" rx=".3"/><rect x="12.6" y="12.6" width="3.2" height="5" rx=".3"/><rect x="16.8" y="12.6" width="3.2" height="5" rx=".3"/><rect x="4" y="6.4" width="2.2" height="5.4"/><rect x="9.3" y="6.4" width="2.2" height="5.4"/><rect x="12.5" y="6.4" width="2.2" height="5.4"/><rect x="17.8" y="6.4" width="2.2" height="5.4"/></g>',
+  muscle: '<g transform="rotate(-32 12 12)"><path d="M7 12h10" stroke-width="2.8"/><g fill="currentColor" stroke="none"><rect x="2.4" y="6.6" width="2.8" height="10.8" rx=".7"/><rect x="5.5" y="8.3" width="2.2" height="7.4" rx=".6"/><rect x="16.3" y="8.3" width="2.2" height="7.4" rx=".6"/><rect x="18.8" y="6.6" width="2.8" height="10.8" rx=".7"/></g></g>',
+  clef: '<path d="M8.6 17.2V6.6l10.2-2.8v10.8" stroke-width="2"/><path d="M8.6 6.6l10.2-2.8v3l-10.2 2.8z" fill="currentColor" stroke="none"/><g fill="currentColor" stroke="none"><ellipse cx="6.2" cy="17.4" rx="2.9" ry="2.1" transform="rotate(-22 6.2 17.4)"/><ellipse cx="16.4" cy="14.8" rx="2.9" ry="2.1" transform="rotate(-22 16.4 14.8)"/></g>',
+  phones: '<path d="M4.6 14.5V12a7.4 7.4 0 0 1 14.8 0v2.5" stroke-width="2.6"/><g fill="currentColor" stroke="none"><rect x="2.6" y="13" width="5" height="8" rx="1.6"/><rect x="16.4" y="13" width="5" height="8" rx="1.6"/></g><g class="hole" stroke="none"><rect x="4" y="15" width="2.2" height="4" rx=".6"/><rect x="17.8" y="15" width="2.2" height="4" rx=".6"/></g>',
+  shoe: '<path d="M6.5 18.5v-7c0-.6.6-1 1.2-.8 1.8.6 3.3.2 4.1-1.6l.5-1c.2-.4.7-.6 1.1-.3 2 1.6 3.8 3.8 6.4 4.6 1.4.5 2.2 1.6 2.2 3.1v3z" fill="currentColor" stroke="none"/><path d="M6.5 16.6h15.4" class="hole-line" stroke-width="1.3"/><path d="M12.4 11.2l1.6-1.4M14.2 12.6l1.6-1.4" class="hole-line" stroke-width="1.2"/><path d="M1 10.5h3.6M.4 13.5h3.8M1.4 16.5h3" stroke-width="1.8"/>',
+  check: '<path d="M12 2.6l2.7 6.1 6.6.6-5 4.4 1.5 6.5L12 16.8l-5.8 3.4 1.5-6.5-5-4.4 6.6-.6z" fill="currentColor" stroke="none"/>'
 };
 function stampFor(name) {
   const n = name.toLowerCase();
@@ -187,119 +144,90 @@ function stampFor(name) {
 }
 // each stamp lands at its own slight angle, same every time for the same cell
 function tilt(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (Math.abs(h) % 19) - 9; }
-function stamp(h, key, cls) {
-  return '<span class="stamp ' + cls + '" style="--r:' + tilt(key + h.id) + 'deg"><svg viewBox="0 0 24 24">' + STAMP[stampFor(h.name)] + '</svg></span>';
+// sleeve-style block: outline under an hour, solid blue from 1h, solid orange from 2h.
+// the art grows with the hours (2h+ is cropped off the edge like a cover photo), and each cell gets its own angle and crop.
+function stamp(h, key, m) {
+  const lv = m >= 120 ? 3 : m >= 60 ? 2 : 1, r = tilt(key + h.id);
+  const scale = [0, .66, .92, 1.55][lv];
+  const dx = lv === 3 ? (r % 2 ? 3.5 : -3.5) : lv === 2 ? r / 6 : 0, dy = lv === 3 ? 3 : lv === 2 ? -r / 9 : 0;
+  const rot = lv === 1 ? 0 : r * (lv === 3 ? 2 : 1);
+  return '<span class="stamp lv' + lv + '"><svg viewBox="0 0 24 24"><g transform="translate(' + (12 + dx) + ' ' + (12 + dy) + ') rotate(' + rot + ') scale(' + scale + ') translate(-12 -12)">' +
+    STAMP[stampFor(h.name)] + '</g></svg></span><i class="amt">' + fm(m) + '</i>';
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let weekOffset = 0;
+let fresh = null; // cell that was just stamped, so it gets the thunk animation once
 
-function render() { renderHeader(); renderToday(); renderWeek(); }
-
-function renderHeader() {
-  const now = new Date(), key = dayKey(now);
-  const mon = monday(now);
-  let today = 0, week = 0;
-  for (const s of S.sessions) {
-    if (s.deleted) continue;
-    if (s.date === key) today += s.minutes;
-    const d = fromKey(s.date);
-    if (d >= mon && d < addDays(mon, 7)) week += s.minutes;
-  }
-  const hs = active();
-  const done = hs.filter(h => isDone(h, key)).length;
-  const due = hs.filter(h => target(h, key)).length;
-  document.getElementById('dayName').textContent = DAY_NAMES[wd(now)];
-  document.getElementById('todaySub').innerHTML =
-    now.getDate() + ' ' + now.toLocaleDateString('en-GB', { month: 'long' }) +
-    ' · <b>' + fm(today) + '</b> today · ' + fm(week) + ' this week' +
-    (due ? ' · ' + done + '/' + due + ' done' : '');
-}
-
-function renderToday() {
-  const el = document.getElementById('today');
-  const key = dayKey(new Date());
-  const hs = active();
-  if (!hs.length) {
-    el.innerHTML = '<p class="empty">No habits yet. <button data-act="settings">Add one</button></p>';
-    return;
-  }
-  const mm = minutesMap();
-  el.innerHTML = hs.map(h => {
-    const m = minutesOn(h.id, key), t = target(h, key), done = isDone(h, key);
-    const running = S.timer && S.timer.habit === h.id;
-    const p = t ? Math.min(100, m / t * 100) : 0;
-    const meta = running
-      ? '<p class="meta live" data-live>' + clock(Math.floor((Date.now() - S.timer.start) / 1000)) + '</p>'
-      : '<p class="meta">' + fm(m) + (t ? ' / ' + fm(t) : h.targets.some(Boolean) ? ' · rest day' : ' · no target set') + '</p>';
-    return '<div class="row">' +
-      '<div class="nm"><p class="name">' + esc(h.name) + '</p>' + meta + streakTags(h, mm) +
-      (t ? '<div class="bar"><i style="width:' + p + '%"></i></div>' : '') + '</div>' +
-      '<button class="btn play' + (running ? ' on' : '') + '" data-act="timer" data-id="' + h.id + '" aria-label="' + (running ? 'Stop' : 'Start') + ' ' + esc(h.name) + ' timer">' + (running ? ICON.stop : ICON.play) + '</button>' +
-      '<button class="btn" data-act="add" data-min="15" data-id="' + h.id + '" aria-label="Add 15 minutes of ' + esc(h.name) + '">+15</button>' +
-      '<button class="btn" data-act="add" data-min="30" data-id="' + h.id + '" aria-label="Add 30 minutes of ' + esc(h.name) + '">+30</button>' +
-      '<button class="done' + (done ? ' on' : '') + (t ? '' : ' rest') + '" data-act="mark" data-id="' + h.id + '" data-day="' + key + '" aria-label="' + (done ? 'Done' : 'Not done') + ': ' + esc(h.name) + '">' + (done ? ICON.check : '') + '</button>' +
-      '</div>';
-  }).join('');
-}
+function render() { renderWeek(); }
 
 function renderWeek() {
   const now = new Date(), todayKey = dayKey(now);
   const mon = addDays(monday(now), weekOffset * 7);
   const days = [...Array(7)].map((_, i) => addDays(mon, i));
   const keys = days.map(dayKey);
-  const label = weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : 'Week ' + isoWeek(mon) + ' · ' + mon.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  document.getElementById('weekLabel').textContent = label;
+  const mm = minutesMap();
+  const sun = days[6];
+  const range = mon.getMonth() === sun.getMonth()
+    ? mon.getDate() + '–' + sun.getDate() + ' ' + sun.toLocaleDateString('en-GB', { month: 'short' })
+    : mon.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' – ' + sun.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  document.getElementById('weekLabel').textContent = weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : range;
   document.getElementById('nextWeek').style.visibility = weekOffset < 0 ? 'visible' : 'hidden';
 
-  let g = '<div></div>' + days.map((d, i) =>
-    '<div class="dh' + (keys[i] === todayKey ? ' t' : '') + '"><button data-act="day" data-day="' + keys[i] + '" aria-label="' + fmtDate(d) + '">' + DAYS[i] + '<small>' + d.getDate() + '</small></button></div>'
-  ).join('') + '<div class="dh">Σ</div>';
+  // header: the shown week's total, printed big
+  const hs = active();
+  let weekMin = 0, todayMin = 0;
+  for (const h of hs) {
+    keys.forEach(k => { weekMin += mm[h.id + '|' + k] || 0; });
+    todayMin += mm[h.id + '|' + todayKey] || 0;
+  }
+  const big = weekMin ? fm(weekMin) : '0h';
+  for (const s of document.querySelectorAll('#big span')) s.textContent = big;
+  document.getElementById('big').setAttribute('aria-label', fm(weekMin) + ' this week');
+  document.getElementById('kick').textContent = 'Vol. ' + isoWeek(mon) + ' · ' + range;
+  document.getElementById('sub').innerHTML = fmtDate(now) + ' · <b>' + fm(todayMin) + '</b> today';
 
-  for (const h of active()) {
-    g += '<div class="hl">' + esc(h.name) + '</div>';
+  let g = '<div class="dayrow">' + days.map((d, i) =>
+    '<div class="dh' + (keys[i] === todayKey ? ' t' : '') + '">' + DAYS[i] + '<small>' + d.getDate() + '</small></div>'
+  ).join('') + '</div>';
+
+  if (!hs.length) g += '<p class="empty">No habits yet. <button data-act="settings">Add one</button></p>';
+  for (const h of hs) {
     let wk = 0;
-    keys.forEach((k, i) => {
-      const m = minutesOn(h.id, k), t = h.targets[i];
+    const cells = keys.map((k, i) => {
+      const m = mm[h.id + '|' + k] || 0;
       wk += m;
       const tc = k === todayKey ? ' tc' : '';
-      const lbl = esc(h.name) + ', ' + fmtDate(days[i]) + ': ' + fm(m) + (t ? ' of ' + fm(t) : '');
-      if (k > todayKey) { g += '<div class="c fut" aria-hidden="true"></div>'; return; }
-      // stamped = did it (target hit, or any time on a no-target day); faint stamp = started, short of target
-      const ok = stamped(h, k, m);
-      const part = !ok && m > 0;
-      const state = ok ? ', done' : part ? ', started' : '';
-      g += '<button class="c' + (ok ? ' ok' : part ? ' part' : '') + tc + '" data-act="day" data-day="' + k + '" aria-label="' + lbl + state + '">' +
-        (ok ? stamp(h, k, '') : part ? stamp(h, k, 'faint') : '') + '</button>';
-    });
-    g += '<div class="tot">' + (wk ? fm(wk) : '') + '</div>';
+      if (k > todayKey) return '<div class="c fut" aria-hidden="true"></div>';
+      const lbl = esc(h.name) + ', ' + fmtDate(days[i]) + ': ' + (m ? fm(m) : 'nothing yet');
+      const fr = fresh === h.id + '|' + k ? ' fresh' : '';
+      return '<button class="c' + (m ? ' ok' : '') + tc + fr + '" data-act="cell" data-id="' + h.id + '" data-day="' + k + '" aria-label="' + lbl + '">' +
+        (m ? stamp(h, k, m) : '') + '</button>';
+    }).join('');
+    g += '<div class="hrow"><div class="hl"><span class="hn">' + esc(h.name) + '</span>' + streakTags(h, mm) +
+      '<span class="tot">' + (wk ? fm(wk) : '') + '</span></div><div class="cells">' + cells + '</div></div>';
   }
   document.getElementById('grid').innerHTML = g;
+  fresh = null;
 }
 
-// ---------- day sheet ----------
-let openDay = null;
-function showDay(key) {
-  openDay = key;
-  renderDay();
-  const sel = document.getElementById('addHabit');
-  sel.innerHTML = active().map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
-  const dlg = document.getElementById('dayDialog');
+// ---------- cell sheet: log time for one habit on one day ----------
+let openCell = null;
+function showCell(habitId, key) {
+  openCell = { habit: habitId, day: key };
+  renderCell();
+  const dlg = document.getElementById('cellDialog');
   if (!dlg.open) dlg.showModal();
 }
-function renderDay() {
-  const key = openDay, d = fromKey(key);
-  document.getElementById('dayTitle').textContent = fmtDate(d);
-  const blocks = active().map(h => {
-    const ss = S.sessions.filter(s => !s.deleted && s.habit === h.id && s.date === key);
-    const m = ss.reduce((a, s) => a + s.minutes, 0), t = target(h, key);
-    const rows = ss.map(s => {
-      const at = new Date(s.at);
-      const time = isNaN(at) ? '' : at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-      return '<div class="sess"><span>' + fm(s.minutes) + (time ? ' · ' + time : '') + '</span><button data-act="del" data-sid="' + s.id + '" aria-label="Delete this session">' + ICON.x + '</button></div>';
-    }).join('');
-    return '<div class="dhab"><div class="h">' + esc(h.name) + '<span>' + fm(m) + (t ? ' / ' + fm(t) : ' · rest') + (isDone(h, key) ? ' · done' : '') + '</span></div>' + rows + '</div>';
-  });
-  document.getElementById('dayList').innerHTML = blocks.length ? blocks.join('') : '<p class="nothing">No habits yet.</p>';
+function renderCell() {
+  const h = habit(openCell.habit), key = openCell.day;
+  const ss = S.sessions.filter(s => !s.deleted && s.habit === h.id && s.date === key);
+  const m = ss.reduce((a, s) => a + s.minutes, 0);
+  document.getElementById('cellTitle').textContent = h.name;
+  document.getElementById('cellSub').textContent = fmtDate(fromKey(key)) + (m ? ' · ' + fm(m) + ' logged' : '');
+  document.getElementById('cellList').innerHTML = ss.map(s => {
+    const at = new Date(s.at);
+    return '<div class="sess"><span>' + fm(s.minutes) + (isNaN(at) ? '' : ' · ' + fmtTime(at)) + '</span><button data-act="del" data-sid="' + s.id + '" aria-label="Delete this session">' + ICON.x + '</button></div>';
+  }).join('');
 }
 
 // ---------- settings sheet ----------
@@ -313,10 +241,6 @@ function renderSettings() {
         '<button data-act="move" data-dir="-1" aria-label="Move up">' + ICON.up + '</button>' +
         '<button data-act="move" data-dir="1" aria-label="Move down">' + ICON.down + '</button>') +
       '<button data-act="retire" aria-label="' + (h.retired ? 'Bring back' : 'Retire') + ' ' + esc(h.name) + '" title="' + (h.retired ? 'Bring back' : 'Retire (keeps history)') + '">' + (h.retired ? ICON.show : ICON.hide) + '</button></div>' +
-      (h.retired ? '' :
-        '<div class="tg">' + DAYS.map((d, i) =>
-          '<div><label for="t' + h.id + i + '">' + d + '</label><input id="t' + h.id + i + '" type="number" inputmode="numeric" min="0" max="720" placeholder="–" value="' + (h.targets[i] ?? '') + '" data-f="t" data-i="' + i + '"></div>'
-        ).join('') + '</div><button class="copy" data-act="copyMon">Copy Monday to all days</button>') +
     '</div>'
   ).join('');
 }
@@ -325,33 +249,29 @@ function renderSettings() {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
-  const act = b.dataset.act, id = b.dataset.id;
-  if (act === 'timer') { S.timer && S.timer.habit === id ? stopTimer() : startTimer(id); }
+  const act = b.dataset.act;
+  if (act === 'cell') showCell(b.dataset.id, b.dataset.day);
   else if (act === 'add') {
-    const s = addSession(id, dayKey(new Date()), +b.dataset.min);
-    toast('+' + b.dataset.min + 'm ' + habit(id).name, () => { removeSession(s.id); render(); });
+    const { habit: hid, day } = openCell, min = +b.dataset.min;
+    // a past-day session gets noon as its time; today's gets now
+    const at = day === dayKey(new Date()) ? new Date() : (() => { const d = fromKey(day); d.setHours(12); return d; })();
+    const s = addSession(hid, day, min, at.toISOString());
+    document.getElementById('cellDialog').close();
+    fresh = hid + '|' + day;
+    toast('+' + fm(min) + ' ' + habit(hid).name, () => { removeSession(s.id); render(); });
     render();
   }
-  else if (act === 'mark') {
-    const h = habit(id), key = b.dataset.day, mk = key + '|' + id;
-    const want = !isDone(h, key);
-    S.marks[mk] = null;
-    if (isDone(h, key) !== want) S.marks[mk] = want;
-    save(); pend('marks', mk); render();
-  }
-  else if (act === 'day') showDay(b.dataset.day);
   else if (act === 'del') {
     const s = S.sessions.find(x => x.id === b.dataset.sid);
     removeSession(b.dataset.sid);
-    toast('Session deleted', () => { s.deleted = false; save(); pend('sessions', s.id); renderDay(); render(); });
-    renderDay(); render();
+    toast('Session deleted', () => { s.deleted = false; save(); pend('sessions', s.id); render(); });
+    renderCell(); render();
   }
   else if (act === 'settings') showSettings();
-  else if (act === 'move' || act === 'retire' || act === 'copyMon') {
+  else if (act === 'move' || act === 'retire') {
     const hid = b.closest('.hed').dataset.id, h = habit(hid);
     pend('habits', h.id);
     if (act === 'retire') { h.retired = !h.retired; if (!h.retired) h.order = Math.max(0, ...S.habits.map(x => x.order)) + 1; }
-    if (act === 'copyMon') h.targets = h.targets.map(() => h.targets[0]);
     if (act === 'move') {
       const list = active(), i = list.indexOf(h), j = i + +b.dataset.dir;
       if (j >= 0 && j < list.length) { const o = list[j].order; list[j].order = h.order; h.order = o; pend('habits', list[j].id); }
@@ -364,10 +284,6 @@ document.addEventListener('click', e => {
 document.getElementById('habitEditor').addEventListener('change', e => {
   const inp = e.target, h = habit(inp.closest('.hed').dataset.id);
   if (inp.dataset.f === 'name') { const v = inp.value.trim(); if (v) h.name = v; else inp.value = h.name; }
-  if (inp.dataset.f === 't') {
-    const v = parseInt(inp.value, 10);
-    h.targets[+inp.dataset.i] = v > 0 ? Math.min(v, 720) : null;
-  }
   save(); pend('habits', h.id); render();
 });
 
@@ -379,18 +295,6 @@ document.getElementById('newHabitForm').addEventListener('submit', e => {
   S.habits.push(nh);
   inp.value = '';
   save(); pend('habits', nh.id); renderSettings(); render();
-});
-
-document.getElementById('addForm').addEventListener('submit', e => {
-  e.preventDefault();
-  const min = parseInt(document.getElementById('addMin').value, 10);
-  const hid = document.getElementById('addHabit').value;
-  if (!(min > 0) || !hid) return;
-  // a past-day session gets noon as its time; today's gets now
-  const at = openDay === dayKey(new Date()) ? new Date() : (() => { const d = fromKey(openDay); d.setHours(12); return d; })();
-  addSession(hid, openDay, Math.min(min, 720), at.toISOString());
-  document.getElementById('addMin').value = '';
-  renderDay(); render();
 });
 
 document.getElementById('openSettings').onclick = showSettings;
@@ -432,16 +336,12 @@ document.getElementById('importJson').addEventListener('change', async e => {
   e.target.value = '';
 });
 
-// ---------- live clock + day rollover ----------
+// ---------- day rollover ----------
 let lastKey = dayKey(new Date());
 setInterval(() => {
   const k = dayKey(new Date());
-  if (k !== lastKey) { lastKey = k; render(); return; }
-  if (S.timer) {
-    const el = document.querySelector('[data-live]');
-    if (el) el.textContent = clock(Math.floor((Date.now() - S.timer.start) / 1000));
-  }
-}, 1000);
+  if (k !== lastKey) { lastKey = k; render(); }
+}, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { S = load(); render(); } });
 
 render();
